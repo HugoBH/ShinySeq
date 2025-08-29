@@ -1,16 +1,21 @@
+library(shiny)
+library(readxl)
+
+# Load run kit information from Excel
+kits <- read_excel("run_kits.xlsx")
+#Reads column must not have identical values.
+
 ui <- fluidPage(
   titlePanel("Sequencing Read Depth Calculator"),
   
   sidebarLayout(
     sidebarPanel(
-      # Choose available reads
-      selectInput("reads", "Select run kit:",
-                  choices = c("NextSeq500 1x75 High Output" = 400e6, #25-30Gb
-                              "NextSeq500 2x75 Mid Output" = 260e6,  #50-60Gb
-                              "NextSeq500 2x75 High Output" = 800e6),#50-60Gb
-                  selected = 400e6),
+      # Choose run kit dynamically from Excel file
+      selectInput("kit", "Select run kit:",
+                  choices = setNames(kits$Reads, kits$KitName),
+                  selected = kits$Reads[1]),
       
-      # Spiking slider
+      # PhiX spiking slider
       sliderInput("phix", "PhiX:",
                   min = 10, max = 40, value = 20, step = 5),
       
@@ -18,66 +23,77 @@ ui <- fluidPage(
       sliderInput("n_species", "Number of Species:",
                   min = 1, max = 10, value = 2, step = 1),
       
-      # Dynamic UI for species names, samples, and loci
+      # Dynamic UI for species
       uiOutput("species_ui")
     ),
     
     mainPanel(
       h3("Species Summary"),
       tableOutput("summary"),
+      
       h3("Stats Summary"),
       textOutput("total_reads"),
       textOutput("available_reads"),
       textOutput("reads_required"),
+      textOutput("cost_info"),
+      textOutput("cost_per_genotype"),  
+      
       h3("Read Depth"),
-      textOutput("read_depth")
+      textOutput("read_depth"),
+      
+      h3("More Information"),
+      uiOutput("kit_link")
     )
   )
 )
 
 server <- function(input, output, session) {
   
-  # Dynamic UI for each species: name, samples, loci
+  # Dynamic sliders for species
   output$species_ui <- renderUI({
     lapply(1:input$n_species, function(i) {
       tagList(
         fluidRow(
           column(6,
-                 sliderInput(paste0("samples_", i), paste("Samples (Sp", i, ")", sep = ""),
+                 sliderInput(paste0("samples_", i), paste("Samples (Sp", i, ")"),
                              min = 0, max = 5000, value = 100, step = 100)
           ),
           column(6,
-                 sliderInput(paste0("loci_", i), paste("Loci (Sp", i, ")", sep = ""),
+                 sliderInput(paste0("loci_", i), paste("Loci (Sp", i, ")"),
                              min = 0, max = 1000, value = 50, step = 50)
           )
         ),
-        hr() # horizontal line between species for clarity
+        hr()
       )
     })
   })
   
-  # Generate sequencing data frame
+  # Kit info reactive
+  kit_info <- reactive({
+    kits[kits$Reads == as.numeric(input$kit), ]
+  })
+  
+  # Sequencing stats
   sequencing_data <- reactive({
     phix <- as.numeric(input$phix)
-    total_reads <- as.numeric(input$reads)
-    available_reads <- as.numeric(input$reads) * (1 - as.numeric(input$phix)/100)
+    total_reads <- as.numeric(input$kit)
+    available_reads <- total_reads * (1 - phix/100)
     
     data.frame(
       PhiX = phix,
       TotalReads = round(total_reads / 1e6, 1),
-      TotalAvailableReads = round(available_reads  / 1e6, 1)
+      TotalAvailableReads = round(available_reads / 1e6, 1)
     )
   })
   
-  # Generate species data frame
+  # Species data
   species_data <- reactive({
     n <- input$n_species
-    names <- sapply(1:n, function(i) input[[paste0("species_name_", i)]])
     samples <- sapply(1:n, function(i) input[[paste0("samples_", i)]])
     loci <- sapply(1:n, function(i) input[[paste0("loci_", i)]])
-
+    
     data.frame(
-      Species = 1:input$n_species,
+      Species = 1:n,
       Samples = samples,
       Loci = loci,
       ReadsPerSpecies = samples * loci,
@@ -89,47 +105,60 @@ server <- function(input, output, session) {
   output$summary <- renderTable({
     species_data()
   })
-
-    # Overall available reads
+  
+  # Stats outputs
   output$total_reads <- renderText({
     df <- sequencing_data()
-    if (!is.na(df$TotalReads[1])) {
-      paste(df$TotalReads[1], "Million reads in this kit")
-    } else {
-      "Please enter valid numbers for PhiX"
-    }
+    paste(df$TotalReads[1], "Million reads in this kit")
   })
-    
-  # Overall available reads
+  
   output$available_reads <- renderText({
     df <- sequencing_data()
-    if (!is.na(df$TotalAvailableReads[1])) {
-      paste(df$TotalAvailableReads[1], "Million reads available with", df$PhiX, "% spiking")
-    } else {
-      "Please enter valid numbers for PhiX"
-    }
+    paste(df$TotalAvailableReads[1], "Million reads available with", df$PhiX, "% spiking")
   })
   
-  # Overall total reads 
   output$reads_required <- renderText({
     df <- species_data()
-    if (!is.na(sum(df$ReadsPerSpecies))) {
-      paste(sum(df$ReadsPerSpecies), "reads required")
-    } else {
-      "Please enter valid numbers for samples and loci."
-    }
+    paste(sum(df$ReadsPerSpecies), "reads required")
   })
   
-  # Overall read depths
   output$read_depth <- renderText({
     df <- species_data()
-    if (!is.na(sum(df$ReadsPerSpecies))) {
-      paste(round( (as.numeric(input$reads) * (1 - as.numeric(input$phix)/100)) / sum(df$ReadsPerSpecies) , 0), 
-            "reads per sample per locus")
+    reads <- as.numeric(input$kit) * (1 - as.numeric(input$phix)/100)
+    paste(round(reads / sum(df$ReadsPerSpecies), 0),
+          "reads per sample per locus")
+  })
+  
+  # Show cost
+  output$cost_info <- renderText({
+    ki <- kit_info()
+    paste("Cost of this kit:", paste0("$", ki$Cost))
+  })
+  
+  # Add weblink
+  output$kit_link <- renderUI({
+    #ki <- kit_info()
+    tags$a(href = "https://youtu.be/93lrosBEW-Q?t=27", 
+           "Click here for more information", 
+           target = "_blank")
+  })
+  
+  # Cost per genotype
+  output$cost_per_genotype <- renderText({
+    df <- species_data()
+    ki <- kit_info()
+    
+    total_genotypes <- sum(df$Samples)
+    
+    if (total_genotypes > 0) {
+      cost_pg <- ki$Cost / total_genotypes
+      paste("Cost per genotype:", paste0("$", round(cost_pg, 4)))
     } else {
-      "Please enter valid numbers for samples and loci."
+      "Please enter valid numbers for samples"
     }
   })
+
+  
 }
 
 shinyApp(ui = ui, server = server)
