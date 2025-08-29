@@ -44,7 +44,7 @@ server <- function(input, output, session) {
         fluidRow(
           column(6,
                  sliderInput(paste0("samples_", i), paste("Samples (Sp", i, ")", sep = ""),
-                             min = 0, max = 5000, value = 100, step = 96)
+                             min = 0, max = 5000, value = 100, step = 100)
           ),
           column(6,
                  sliderInput(paste0("loci_", i), paste("Loci (Sp", i, ")", sep = ""),
