@@ -12,11 +12,11 @@ ui <- fluidPage(
       
       # Spiking slider
       sliderInput("phix", "PhiX:",
-                  min = 10, max = 60, value = 30, step = 10),
+                  min = 10, max = 40, value = 20, step = 5),
       
       # Number of species slider
       sliderInput("n_species", "Number of Species:",
-                  min = 1, max = 10, value = 1, step = 1),
+                  min = 1, max = 10, value = 2, step = 1),
       
       # Dynamic UI for species names, samples, and loci
       uiOutput("species_ui")
@@ -25,9 +25,10 @@ ui <- fluidPage(
     mainPanel(
       h3("Species Summary"),
       tableOutput("summary"),
-      #h3("Summary Stats"),
-      textOutput("available_reads"),
+      h3("Stats Summary"),
       textOutput("total_reads"),
+      textOutput("available_reads"),
+      textOutput("reads_required"),
       h3("Read Depth"),
       textOutput("read_depth")
     )
@@ -57,10 +58,12 @@ server <- function(input, output, session) {
   
   # Generate sequencing data frame
   sequencing_data <- reactive({
+    phix <- as.numeric(input$phix)
     total_reads <- as.numeric(input$reads)
     available_reads <- as.numeric(input$reads) * (1 - as.numeric(input$phix)/100)
     
     data.frame(
+      PhiX = phix,
       TotalReads = round(total_reads / 1e6, 1),
       TotalAvailableReads = round(available_reads  / 1e6, 1)
     )
@@ -86,19 +89,29 @@ server <- function(input, output, session) {
   output$summary <- renderTable({
     species_data()
   })
-  
+
+    # Overall available reads
+  output$total_reads <- renderText({
+    df <- sequencing_data()
+    if (!is.na(df$TotalReads[1])) {
+      paste(df$TotalReads[1], "Million reads in this kit")
+    } else {
+      "Please enter valid numbers for PhiX"
+    }
+  })
+    
   # Overall available reads
   output$available_reads <- renderText({
     df <- sequencing_data()
     if (!is.na(df$TotalAvailableReads[1])) {
-      paste(df$TotalAvailableReads[1], "Million available reads")
+      paste(df$TotalAvailableReads[1], "Million reads available with", df$PhiX, "% spiking")
     } else {
       "Please enter valid numbers for PhiX"
     }
   })
   
   # Overall total reads 
-  output$total_reads <- renderText({
+  output$reads_required <- renderText({
     df <- species_data()
     if (!is.na(sum(df$ReadsPerSpecies))) {
       paste(sum(df$ReadsPerSpecies), "reads required")
