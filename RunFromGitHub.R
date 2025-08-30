@@ -6,6 +6,11 @@ runGitHub( "ShinySeq", "HugoBH", ref = "main")
 install.packages('rsconnect')
 
 library(rsconnect)
-rsconnect::deployApp("app.R")
+rsconnect::deployApp()
 
 runApp("app.R")
+
+
+#Additional ideas
+#Paired end clicker
+#Tab for user specific values (entry boxes instead of sliders)

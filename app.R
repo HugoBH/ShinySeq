@@ -36,7 +36,7 @@ ui <- fluidPage(
       
       # Number of species slider
       sliderInput("n_species", "Number of Species:",
-                  min = 1, max = 10, value = 2, step = 1),
+                  min = 1, max = 5, value = 1, step = 1),
       
       # Dynamic UI for species
       uiOutput("species_ui"),
@@ -175,7 +175,7 @@ server <- function(input, output, session) {
   # Stats outputs
   output$total_reads <- renderText({
     df <- sequencing_data()
-    paste(df$TotalReads[1], "Million reads in this kit")
+    paste(df$TotalReads[1], "Million single reads in this kit")
   })
   
   output$available_reads <- renderText({
@@ -185,7 +185,7 @@ server <- function(input, output, session) {
   
   output$reads_required <- renderText({
     df <- species_data()
-    paste(sum(df$ReadsPerSpecies), "reads required")
+    paste(sum(df$ReadsPerSpecies), "unique reads")
   })
   
   output$read_depth <- renderText({
