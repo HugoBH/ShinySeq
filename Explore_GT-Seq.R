@@ -1,15 +1,22 @@
 library(shiny)
 library(readxl)
+library(bslib)
 
 # Load run kit information from Excel
 kits <- read_excel("run_kits.xlsx")
 #Reads column must not have identical values.
 
+# UI ----
+
 ui <- fluidPage(
+  theme = bs_theme(bootswatch = "superhero"),
+  
   titlePanel("Sequencing Read Depth Calculator"),
+  
   
   sidebarLayout(
     sidebarPanel(
+      h3("Select Run Parameters"),
       # Choose run kit dynamically from Excel file
       selectInput("kit", "Select run kit:",
                   choices = setNames(kits$Reads, kits$KitName),
@@ -19,33 +26,90 @@ ui <- fluidPage(
       sliderInput("phix", "PhiX:",
                   min = 10, max = 40, value = 20, step = 5),
       
+      # Minimum read depth
+      sliderInput("min_depth", "Minimum Read Depth:",
+                  min = 50, max = 1000, value = 200, step = 50),
+      
+      br(),
+      br(),
+      h3("Select Library Parameters"),
+      
       # Number of species slider
       sliderInput("n_species", "Number of Species:",
                   min = 1, max = 10, value = 2, step = 1),
       
       # Dynamic UI for species
-      uiOutput("species_ui")
+      uiOutput("species_ui"),
+      
+      br(),
+      br(),
+      
+      # Toggle log scale on plot
+      radioButtons(
+        "y_scale", "Y-axis scale:",
+        choices = c("Linear" = "linear", "Logarithmic" = "log"),
+        selected = "log"
+      )
     ),
     
     mainPanel(
-      h3("Species Summary"),
+      h3("Run Summary"),
       tableOutput("summary"),
+      br(),
       
-      h3("Stats Summary"),
       textOutput("total_reads"),
       textOutput("available_reads"),
       textOutput("reads_required"),
-      textOutput("cost_info"),
-      textOutput("cost_per_genotype"),  
+      #textOutput("cost_info"),
+      br(),
       
-      h3("Read Depth"),
-      textOutput("read_depth"),
+      
+      fluidRow(
+        column(4,
+               tags$div(class = "card text-white bg-secondary mb-3",
+                        tags$div(class = "card-body",
+                                 tags$h5(class = "card-title", "Read depth"),
+                                 textOutput("read_depth")
+                        )
+               )
+        ),
+        
+        column(4,
+               tags$div(class = "card text-white bg-primary mb-3",
+                        tags$div(class = "card-body",
+                                 tags$h5(class = "card-title", "Sample cost"),
+                                 textOutput("cost_per_genotype")
+                        )
+               )
+        ),
+        
+        column(4,
+               tags$div(class = "card text-white bg-secondary mb-3",
+                        tags$div(class = "card-body",
+                                 tags$h5(class = "card-title", "Run cost"),
+                                 textOutput("cost_info")
+                        )
+               )
+        )
+      ),
+      br(),     
+      
+      
+      h3("Cost Scaling"),
+      plotOutput("cost_plot"),
+      br(),
+      
       
       h3("More Information"),
-      uiOutput("kit_link")
+      uiOutput("kit_link"),
+      br()
+      
     )
   )
 )
+
+
+# Server ----
 
 server <- function(input, output, session) {
   
@@ -67,6 +131,8 @@ server <- function(input, output, session) {
       )
     })
   })
+  
+  
   
   # Kit info reactive
   kit_info <- reactive({
@@ -129,10 +195,28 @@ server <- function(input, output, session) {
           "reads per sample per locus")
   })
   
+  
+  output$read_depth <- renderText({
+    df <- species_data()
+    
+    # Total available reads
+    reads <- as.numeric(input$kit) * (1 - as.numeric(input$phix) / 100)
+    
+    # Calculate read depth
+    depth <- round(reads / sum(df$ReadsPerSpecies), 0)
+    
+    # Return warning if depth too low
+    if (depth < input$min_depth) {
+      paste0(depth, " ⚠️ (<", input$min_depth, ")")
+    } else {
+      paste(depth, "")
+    }
+  })
+  
   # Show cost
   output$cost_info <- renderText({
     ki <- kit_info()
-    paste("Cost of this kit:", paste0("$", ki$Cost))
+    paste0("$", ki$Cost)
   })
   
   # Add weblink
@@ -152,12 +236,118 @@ server <- function(input, output, session) {
     
     if (total_genotypes > 0) {
       cost_pg <- ki$Cost / total_genotypes
-      paste("Cost per genotype:", paste0("$", round(cost_pg, 4)))
+      paste0("$", round(cost_pg, 4))
     } else {
-      "Please enter valid numbers for samples"
+      "Invalid # samples"
     }
   })
-
+  
+  
+  output$cost_plot <- renderPlot({
+    library(ggplot2)
+    
+    df_species <- species_data()
+    sample_range_max <- 10000
+    sum_loci <- sum(df_species$Loci)
+    n_species <- as.numeric(input$n_species)
+    phix <- as.numeric(input$phix)
+    
+    line_list <- list()
+    
+    for (i in seq_len(nrow(kits))) {
+      kit_name <- kits$KitName[i]
+      kit_cost <- kits$Cost[i]
+      kit_reads <- kits$Reads[i]
+      
+      available_reads <- kit_reads * (1 - phix / 100)
+      
+      # cutoff S_max for read depth ≥ min_depth
+      s_max <- if (sum_loci > 0) {
+        floor(available_reads * n_species / (input$min_depth * sum_loci))
+      } else 0L
+      s_max <- min(s_max, sample_range_max)
+      
+      # valid segment (depth ≥ min_depth)
+      if (s_max >= 1) {
+        samples_seq <- seq_len(s_max)
+        line_list[[length(line_list) + 1]] <- data.frame(
+          Samples = samples_seq,
+          CostPerSample = kit_cost / samples_seq,
+          Kit = kit_name,
+          Segment = "valid"
+        )
+      }
+      
+      # invalid segment (depth < 100)
+      if (s_max < sample_range_max) {
+        invalid_samples <- seq(s_max + 1, sample_range_max)
+        if (length(invalid_samples) > 0) {
+          line_list[[length(line_list) + 1]] <- data.frame(
+            Samples = invalid_samples,
+            CostPerSample = kit_cost / invalid_samples,
+            Kit = kit_name,
+            Segment = "invalid"
+          )
+        }
+      }
+    }
+    
+    plot_df <- do.call(rbind, line_list)
+    
+    # Build plot
+    p <- ggplot(plot_df, aes(x = Samples, y = CostPerSample,
+                             group = interaction(Kit, Segment))) +
+      geom_line(aes(colour = Kit), linetype = "solid",
+                data = subset(plot_df, Segment == "valid"), size = 1) +
+      #scale_linetype_manual(values = c(rep("solid", 5), rep("dotted", 3))) +
+      geom_line(aes(colour = Kit), linetype = "dotted",
+                data = subset(plot_df, Segment == "invalid"), size = .8) +
+      scale_colour_manual(values = c("#a63603", "#e6550d", "#fd8d3c", "#fdae6b", 
+                                     "#a6cee3", "#1b7837", "#5aae61", "#a6dba0"))
+    
+    # Chosen parameters (red marker)
+    chosen_samples <- sum(df_species$Samples)
+    ki <- kit_info()
+    chosen_cost_ps <- if (chosen_samples > 0) ki$Cost / chosen_samples else NA_real_
+    available_reads_chosen <- as.numeric(ki$Reads) * (1 - phix / 100)
+    s_max_chosen <- if (sum_loci > 0) floor(available_reads_chosen * n_species / (input$min_depth * sum_loci)) else 0
+    x_point <- pmin(chosen_samples, sample_range_max)
+    
+    if (is.finite(chosen_cost_ps) && chosen_samples >= 1) {
+      if (chosen_samples <= s_max_chosen) {
+        p <- p + geom_point(aes(x = x_point, y = chosen_cost_ps),
+                            colour = "#d9534f", size = 3)
+      } else {
+        p <- p + geom_point(aes(x = x_point, y = chosen_cost_ps),
+                            colour = "#d9534f", size = 3, shape = 4) +
+          annotate("text", x = x_point, y = chosen_cost_ps,
+                   label = "⚠️ Low Read Depth", colour = "#d9534f", vjust = -1)
+      }
+    }
+    
+    # Labels and theme
+    p <- p +
+      labs(x = "Number of Samples", y = "Cost per Sample") +
+      theme_minimal(base_size = 14) +
+      theme(panel.grid = element_blank(), 
+            #legend.position = c(.7,.7),
+            plot.background = element_rect(fill = "#dcdfe2", color = NA),
+            panel.background = element_rect(fill = "#dcdfe2", color = NA),
+            panel.grid.major = element_line(color = "#ebebeb"),
+            #panel.grid.minor = element_line(color = "#ebebeb"),
+            axis.text = element_text(color = "#20374c"),
+            axis.title = element_text(color = "#20374c")
+      )
+    
+    # Axis scale
+    if (input$y_scale == "log") {
+      p <- p + scale_y_log10()
+    } else {
+      p <- p + scale_y_continuous(limits = c(0,1))
+    }
+    
+    print(p)
+  })
   
 }
 
