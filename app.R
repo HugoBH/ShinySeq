@@ -18,13 +18,13 @@ ui <- fluidPage(
     sidebarPanel(
       h3("Select Run Parameters"),
       # Choose run kit dynamically from Excel file
-      selectInput("kit", "Select run kit:",
+      selectInput("kit", "Sequencing kit:",
                   choices = setNames(kits$Reads, kits$KitName),
                   selected = kits$Reads[1]),
       
       # PhiX spiking slider
       sliderInput("phix", "PhiX:",
-                  min = 10, max = 40, value = 20, step = 5),
+                  min = 5, max = 40, value = 20, step = 5),
       
       # Minimum read depth
       sliderInput("min_depth", "Minimum Read Depth:",
@@ -119,11 +119,11 @@ server <- function(input, output, session) {
       tagList(
         fluidRow(
           column(6,
-                 sliderInput(paste0("samples_", i), paste("Samples (Sp", i, ")"),
+                 sliderInput(paste0("samples_", i), paste("Samples (Sp", i, ")", sep = ""),
                              min = 0, max = 5000, value = 100, step = 100)
           ),
           column(6,
-                 sliderInput(paste0("loci_", i), paste("Loci (Sp", i, ")"),
+                 sliderInput(paste0("loci_", i), paste("Loci (Sp", i, ")", sep = ""),
                              min = 0, max = 1000, value = 50, step = 50)
           )
         ),
@@ -216,14 +216,14 @@ server <- function(input, output, session) {
   # Show cost
   output$cost_info <- renderText({
     ki <- kit_info()
-    paste0("$", ki$Cost)
+    paste0("£", ki$Cost)
   })
   
   # Add weblink
   output$kit_link <- renderUI({
     #ki <- kit_info()
     tags$a(href = "https://youtu.be/93lrosBEW-Q?t=27", 
-           "Click here for more information", 
+           "Click here for inspiration", 
            target = "_blank")
   })
   
@@ -236,7 +236,7 @@ server <- function(input, output, session) {
     
     if (total_genotypes > 0) {
       cost_pg <- ki$Cost / total_genotypes
-      paste0("$", round(cost_pg, 4))
+      paste0("£", round(cost_pg, 4))
     } else {
       "Invalid # samples"
     }
@@ -298,10 +298,10 @@ server <- function(input, output, session) {
     p <- ggplot(plot_df, aes(x = Samples, y = CostPerSample,
                              group = interaction(Kit, Segment))) +
       geom_line(aes(colour = Kit), linetype = "solid",
-                data = subset(plot_df, Segment == "valid"), size = 1) +
+                data = subset(plot_df, Segment == "valid"), linewidth = 1) +
       #scale_linetype_manual(values = c(rep("solid", 5), rep("dotted", 3))) +
       geom_line(aes(colour = Kit), linetype = "dotted",
-                data = subset(plot_df, Segment == "invalid"), size = .8) +
+                data = subset(plot_df, Segment == "invalid"), linewidth = .8) +
       scale_colour_manual(values = c("#a63603", "#e6550d", "#fd8d3c", "#fdae6b", 
                                      "#a6cee3", "#1b7837", "#5aae61", "#a6dba0"))
     
