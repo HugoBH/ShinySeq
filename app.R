@@ -1,4 +1,5 @@
 library(shiny)
+library(ggplot2)
 library(readxl)
 library(bslib)
 
@@ -9,9 +10,9 @@ kits <- read_excel("run_kits.xlsx")
 # UI ----
 
 ui <- fluidPage(
-  theme = bs_theme(bootswatch = "superhero"),
   
-  titlePanel("Sequencing Read Depth Calculator"),
+  theme = bs_theme(bootswatch = "superhero"),
+  titlePanel("GT-Seq Read Depth Calculator"),
   
   
   sidebarLayout(
@@ -22,13 +23,16 @@ ui <- fluidPage(
                   choices = setNames(kits$Reads, kits$KitName),
                   selected = kits$Reads[1]),
       
+      # Toggle paired end
+      input_switch("switch", "Paired-end"), 
+
       # PhiX spiking slider
       sliderInput("phix", "PhiX:",
                   min = 5, max = 40, value = 20, step = 5),
       
       # Minimum read depth
       sliderInput("min_depth", "Minimum Read Depth:",
-                  min = 50, max = 1000, value = 200, step = 50),
+                  min = 50, max = 1000, value = 300, step = 50),
       
       br(),
       br(),
@@ -99,10 +103,15 @@ ui <- fluidPage(
       plotOutput("cost_plot"),
       br(),
       
+      h3("Consummables Cost Breakdown"),
+      tableOutput("cost_summary"),
+      br(), 
       
       h3("More Information"),
       uiOutput("kit_link"),
+      textOutput("email"),
       br()
+      
       
     )
   )
@@ -120,11 +129,11 @@ server <- function(input, output, session) {
         fluidRow(
           column(6,
                  sliderInput(paste0("samples_", i), paste("Samples (Sp", i, ")", sep = ""),
-                             min = 0, max = 5000, value = 100, step = 100)
+                             min = 0, max = 5000, value = 3000, step = 100)
           ),
           column(6,
                  sliderInput(paste0("loci_", i), paste("Loci (Sp", i, ")", sep = ""),
-                             min = 0, max = 1000, value = 50, step = 50)
+                             min = 0, max = 1000, value = 300, step = 50)
           )
         ),
         hr()
@@ -143,6 +152,12 @@ server <- function(input, output, session) {
   sequencing_data <- reactive({
     phix <- as.numeric(input$phix)
     total_reads <- as.numeric(input$kit)
+    
+    # Adjust for paired-end switch
+    if (input$switch) {
+      total_reads <- total_reads / 2
+    }
+    
     available_reads <- total_reads * (1 - phix/100)
     
     data.frame(
@@ -221,11 +236,16 @@ server <- function(input, output, session) {
   
   # Add weblink
   output$kit_link <- renderUI({
-    #ki <- kit_info()
     tags$a(href = "https://youtu.be/93lrosBEW-Q?t=27", 
            "Click here for inspiration", 
            target = "_blank")
   })
+  
+  # Add email :
+  output$email <- renderText({
+    paste("hugo.harrison@bristol.ac.uk")
+  })
+  
   
   # Cost per genotype
   output$cost_per_genotype <- renderText({
@@ -243,8 +263,8 @@ server <- function(input, output, session) {
   })
   
   
+  #Cost plot
   output$cost_plot <- renderPlot({
-    library(ggplot2)
     
     df_species <- species_data()
     sample_range_max <- 10000
@@ -258,6 +278,11 @@ server <- function(input, output, session) {
       kit_name <- kits$KitName[i]
       kit_cost <- kits$Cost[i]
       kit_reads <- kits$Reads[i]
+      
+      # Adjust for paired-end switch
+      if (input$switch) {
+        kit_reads <- kit_reads / 2
+      }
       
       available_reads <- kit_reads * (1 - phix / 100)
       
@@ -330,7 +355,7 @@ server <- function(input, output, session) {
       labs(x = "Number of Samples", y = "Cost per Sample") +
       theme_minimal(base_size = 14) +
       theme(panel.grid = element_blank(), 
-            #legend.position = c(.7,.7),
+            legend.position = c(.7,.7),
             plot.background = element_rect(fill = "#dcdfe2", color = NA),
             panel.background = element_rect(fill = "#dcdfe2", color = NA),
             panel.grid.major = element_line(color = "#ebebeb"),
@@ -348,6 +373,42 @@ server <- function(input, output, session) {
     
     print(p)
   })
+  
+  
+  # Cost summary table
+  output$cost_summary <- renderTable({
+    df <- species_data()
+    total_genotypes <- sum(df$Samples)
+    ki <- kit_info()
+    
+    #per sample costs
+    DNA_extraction = 0.25 
+    PCR1 = 0.25
+    PCR2 = 0.34
+    QC =  121.00 
+    TRAC = 654
+    
+    data.frame(
+      Item = c("Extraction", "PCR1", "PCR2", "Sequencing", "QC", "Total"),
+      PerSampleCost = c(paste("£", DNA_extraction, sep = ""),
+                   paste("£", PCR1, sep = ""),
+                   paste("£", PCR2, sep = ""),
+                   paste("£", round(ki$Cost / total_genotypes, 2), sep = ""),
+                   paste("£", QC, sep = ""), 
+                   paste("£", round(sum(DNA_extraction, PCR1, PCR2) + 
+                                      ki$Cost / total_genotypes + QC / total_genotypes, 2))),
+      TotalCost = c(paste("£", DNA_extraction * total_genotypes, sep = ""),
+                  paste("£", PCR1 * total_genotypes, sep = ""),
+                  paste("£", PCR2 * total_genotypes, sep = ""),
+                  paste("£", ki$Cost, sep = ""),
+                  paste("£", QC, sep = ""), 
+                  paste("£", round(sum(DNA_extraction, PCR1, PCR2) * total_genotypes + ki$Cost + QC, 2)))
+    )
+    
+  })
+  
+  
+  
   
 }
 

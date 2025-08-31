@@ -8,9 +8,8 @@ install.packages('rsconnect')
 library(rsconnect)
 rsconnect::deployApp()
 
-runApp("app.R")
+runApp("")
 
 
 #Additional ideas
-#Paired end clicker
 #Tab for user specific values (entry boxes instead of sliders)
