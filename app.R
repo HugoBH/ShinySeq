@@ -12,8 +12,11 @@ kits <- read_excel("run_kits.xlsx")
 ui <- fluidPage(
   
   theme = bs_theme(bootswatch = "superhero"),
-  titlePanel("GT-Seq Read Depth Calculator"),
-  
+  titlePanel("Welcome to ShinySeq"),
+  #helpText("Calculate read depth and sample costs for Genotyping by Sequencing projects"),
+  tags$p(style = "font-size: 16px; font-style: color: #ccc;",
+         "Estimate sequencing depth and cost based on run and library parameters for Genotyping by Sequencing."),
+  #br(),
   
   sidebarLayout(
     sidebarPanel(
