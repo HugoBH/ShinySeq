@@ -103,7 +103,8 @@ ui <- fluidPage(
       plotOutput("cost_plot"),
       br(),
       
-      h3("Consummables Cost Breakdown"),
+      h3("Cost Breakdown"),
+      helpText("Costs are approximate"),
       tableOutput("cost_summary"),
       br(), 
       
@@ -376,7 +377,7 @@ server <- function(input, output, session) {
   
   
   # Cost summary table
-  output$cost_summary <- renderTable({
+  output$cost_summary.temp <- renderTable({
     df <- species_data()
     total_genotypes <- sum(df$Samples)
     ki <- kit_info()
@@ -406,6 +407,38 @@ server <- function(input, output, session) {
     )
     
   })
+  
+  
+  
+  output$cost_summary <- renderTable({
+    df <- species_data()
+    total_genotypes <- sum(df$Samples)
+    ki <- kit_info()
+    
+    # Define per-sample costs
+    day_rate <- 258.25
+    consumables <- c(Extraction = 0.25, PCR1 = 0.25, PCR2 = 0.34)
+    trac <- c(Extraction = day_rate / 400,   #how many extractions one can do in a day
+              PCR1 = day_rate / 1200,        #how many PCRs (3 x 4 plates) one can do in a day
+              PCR2 = day_rate / 1200)       #how many PCRs (3 x 4 plates) one can do in a day
+    sequencing <- ki$Cost / total_genotypes
+    seq_trac <- day_rate / 2
+    qc <- 121.00
+    
+    # Total cost calculation
+    total_per_sample <- sum(consumables) + sequencing + qc / total_genotypes
+    total_trac <- sum(trac) * total_genotypes + seq_trac + qc
+    total_run_cost <- sum(consumables, trac) * total_genotypes + ki$Cost + seq_trac + qc
+    
+    # Create data frame
+    data.frame(
+      Item = c(names(consumables), "Sequencing", "QC", "Total"),
+      Consumables = paste0("£", round(c(consumables, sequencing, qc / total_genotypes, total_per_sample), 2)),
+      TRAC = paste0("£", round(c(trac * total_genotypes, seq_trac, qc, total_trac))), 
+      TotalCost = paste0("£", round(c((consumables + trac) * total_genotypes, ki$Cost + seq_trac, qc, total_run_cost), 2))
+    )
+  })
+  
   
   
   
