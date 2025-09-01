@@ -236,22 +236,14 @@ server <- function(input, output, session) {
     paste(sum(df$ReadsPerSpecies), "unique reads")
   })
   
+  
+  # Read depth
   output$read_depth <- renderText({
     df <- species_data()
-    reads <- as.numeric(input$kit) * (1 - as.numeric(input$phix)/100)
-    paste(round(reads / sum(df$ReadsPerSpecies), 0),
-          "reads per sample per locus")
-  })
-  
-  
-  output$read_depth <- renderText({
-    df <- species_data()
-    
-    # Total available reads
-    reads <- as.numeric(input$kit) * (1 - as.numeric(input$phix) / 100)
+    seq <- sequencing_data()
     
     # Calculate read depth
-    depth <- round(reads / sum(df$ReadsPerSpecies), 0)
+    depth <- round((seq$TotalAvailableReads[1] * 1e6) / sum(df$ReadsPerSpecies), 0)
     
     # Return warning if depth too low
     if (depth < input$min_depth) {
