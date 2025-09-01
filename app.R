@@ -13,9 +13,8 @@ ui <- fluidPage(
   
   theme = bs_theme(bootswatch = "superhero"),
   titlePanel("Welcome to ShinySeq"),
-  #helpText("Calculate read depth and sample costs for Genotyping by Sequencing projects"),
   tags$p(style = "font-size: 16px; font-style: color: #ccc;",
-         "Estimate sequencing depth and cost based on run and library parameters for Genotyping by Sequencing."),
+         "A simple tool to explore run parameters on sequencing depth and costs for Genotyping by Sequencing"),
   #br(),
   
   sidebarLayout(
@@ -106,10 +105,40 @@ ui <- fluidPage(
       plotOutput("cost_plot"),
       br(),
       
+      
       h3("Cost Breakdown"),
-      helpText("Costs are approximate"),
-      tableOutput("cost_summary"),
+      helpText("Approximate pricing are purely indicative and vary by project"),
+      
+      fluidRow(
+        column(8, 
+               tableOutput("cost_summary")
+               ),
+        column(4, #offset = 1,
+               tags$div(class = "card text-white bg-primary mb-3",
+                        tags$div(class = "card-body",
+                                 tags$h5(class = "card-title", "Per sample"),
+                                 textOutput("per_sample_cost")
+                                 )
+                        ),
+               tags$div(class = "card text-white bg-secondary mb-3",
+                        tags$div(class = "card-body",
+                                 tags$h5(class = "card-title", "Consumables only"),
+                                 textOutput("total_consumable_cost")
+                        )
+               ),
+               tags$div(class = "card text-white bg-primary mb-3",
+                        tags$div(class = "card-body",
+                                 tags$h5(class = "card-title", "TRAC costed project"),
+                                 textOutput("total_project_cost")
+                        )
+               )
+               
+        )
+      ),
       br(), 
+      
+      
+      
       
       h3("More Information"),
       uiOutput("kit_link"),
@@ -380,37 +409,16 @@ server <- function(input, output, session) {
   
   
   # Cost summary table
-  output$cost_summary.temp <- renderTable({
-    df <- species_data()
-    total_genotypes <- sum(df$Samples)
-    ki <- kit_info()
-    
-    #per sample costs
-    DNA_extraction = 0.25 
-    PCR1 = 0.25
-    PCR2 = 0.34
-    QC =  121.00 
-    TRAC = 654
-    
-    data.frame(
-      Item = c("Extraction", "PCR1", "PCR2", "Sequencing", "QC", "Total"),
-      PerSampleCost = c(paste("£", DNA_extraction, sep = ""),
-                   paste("£", PCR1, sep = ""),
-                   paste("£", PCR2, sep = ""),
-                   paste("£", round(ki$Cost / total_genotypes, 2), sep = ""),
-                   paste("£", QC, sep = ""), 
-                   paste("£", round(sum(DNA_extraction, PCR1, PCR2) + 
-                                      ki$Cost / total_genotypes + QC / total_genotypes, 2))),
-      TotalCost = c(paste("£", DNA_extraction * total_genotypes, sep = ""),
-                  paste("£", PCR1 * total_genotypes, sep = ""),
-                  paste("£", PCR2 * total_genotypes, sep = ""),
-                  paste("£", ki$Cost, sep = ""),
-                  paste("£", QC, sep = ""), 
-                  paste("£", round(sum(DNA_extraction, PCR1, PCR2) * total_genotypes + ki$Cost + QC, 2)))
-    )
-    
-  })
   
+  day_rate <- 258.25 #wetlab
+  bioinformatics <- 357.90 #day rate bioinformatic
+  
+  consumables <- c(Extraction = 0.25, PCR1 = 0.25, PCR2 = 0.34)
+  trac <- c(Extraction = day_rate / 400,   #how many extractions one can do in a day
+            PCR1 = day_rate / 1200,        #how many PCRs (3 x 4 plates) one can do in a day
+            PCR2 = day_rate / 1200)       #how many PCRs (3 x 4 plates) one can do in a day
+  seq_trac <- day_rate / 2
+  qc <- 121.00
   
   
   output$cost_summary <- renderTable({
@@ -418,31 +426,55 @@ server <- function(input, output, session) {
     total_genotypes <- sum(df$Samples)
     ki <- kit_info()
     
-    # Define per-sample costs
-    day_rate <- 258.25
-    consumables <- c(Extraction = 0.25, PCR1 = 0.25, PCR2 = 0.34)
-    trac <- c(Extraction = day_rate / 400,   #how many extractions one can do in a day
-              PCR1 = day_rate / 1200,        #how many PCRs (3 x 4 plates) one can do in a day
-              PCR2 = day_rate / 1200)       #how many PCRs (3 x 4 plates) one can do in a day
+    # Define per-sample sequencing costs
     sequencing <- ki$Cost / total_genotypes
-    seq_trac <- day_rate / 2
-    qc <- 121.00
     
     # Total cost calculation
-    total_per_sample <- sum(consumables) + sequencing + qc / total_genotypes
-    total_trac <- sum(trac) * total_genotypes + seq_trac + qc
-    total_run_cost <- sum(consumables, trac) * total_genotypes + ki$Cost + seq_trac + qc
+    total_per_sample <- sum(consumables) + sequencing
+    total_trac <- sum(trac) * total_genotypes + seq_trac + qc + bioinformatics / 2
+    total_run_cost <- sum(consumables, trac) * total_genotypes + ki$Cost + seq_trac + qc + bioinformatics / 2
     
     # Create data frame
     data.frame(
-      Item = c(names(consumables), "Sequencing", "QC", "Total"),
-      Consumables = paste0("£", round(c(consumables, sequencing, qc / total_genotypes, total_per_sample), 2)),
-      TRAC = paste0("£", round(c(trac * total_genotypes, seq_trac, qc, total_trac))), 
-      TotalCost = paste0("£", round(c((consumables + trac) * total_genotypes, ki$Cost + seq_trac, qc, total_run_cost), 2))
+      Item = c(names(consumables), "Sequencing", "QC", "Bioinformatics", "Total"),
+      Consumables = paste0("£", round(c(consumables, sequencing, 0, 0, total_per_sample), 2)),
+      TRAC = paste0("£", round(c(trac * total_genotypes, seq_trac, qc, bioinformatics / 2, total_trac))), 
+      TotalCost = paste0("£", round(c((consumables + trac) * total_genotypes, ki$Cost + seq_trac, qc, bioinformatics / 2, total_run_cost)))
     )
   })
   
   
+  # Per-sample costs
+  output$per_sample_cost <- renderText({
+    df <- species_data()
+    total_genotypes <- sum(df$Samples)
+    ki <- kit_info()
+    
+    consumable_cost <- sum(consumables) + ki$Cost / total_genotypes
+    paste0("£", round(consumable_cost, 2))
+  })  
+  
+  # Total consumables
+  output$total_consumable_cost <- renderText({
+    df <- species_data()
+    total_genotypes <- sum(df$Samples)
+    ki <- kit_info()
+
+    consumable_cost <- sum(consumables) * total_genotypes + ki$Cost 
+    paste0("£", round(consumable_cost, 0))
+  })  
+  
+  output$total_project_cost <- renderText({
+    df <- species_data()
+    total_genotypes <- sum(df$Samples)
+    ki <- kit_info()
+    
+    total_cost <- sum(consumables, trac) * total_genotypes + ki$Cost + seq_trac + qc + bioinformatics / 2
+    paste0("£", round(total_cost, 0))
+  })
+  
+  
+
   
   
   
