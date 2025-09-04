@@ -34,7 +34,7 @@ ui <- fluidPage(
       
       # Minimum read depth
       sliderInput("min_depth", "Minimum Read Depth:",
-                  min = 50, max = 1000, value = 300, step = 50),
+                  min = 50, max = 1000, value = 500, step = 50),
       
       br(),
       br(),
@@ -67,6 +67,8 @@ ui <- fluidPage(
       textOutput("available_reads"),
       textOutput("reads_required"),
       #textOutput("cost_info"),
+      helpText("Note: Expect 80-90% On target reads"),
+      br(),
       br(),
       
       
@@ -133,7 +135,7 @@ ui <- fluidPage(
                         )
                )
                
-        )
+        )#,        column(1)
       ),
       br(), 
       
@@ -162,7 +164,7 @@ server <- function(input, output, session) {
         fluidRow(
           column(6,
                  sliderInput(paste0("samples_", i), paste("Samples (Sp", i, ")", sep = ""),
-                             min = 0, max = 5000, value = 3000, step = 100)
+                             min = 0, max = 5000, value = 2000, step = 100)
           ),
           column(6,
                  sliderInput(paste0("loci_", i), paste("Loci (Sp", i, ")", sep = ""),
@@ -184,11 +186,11 @@ server <- function(input, output, session) {
   # Sequencing stats
   sequencing_data <- reactive({
     phix <- as.numeric(input$phix)
-    total_reads <- as.numeric(input$kit)
+    total_reads <- as.numeric(input$kit) 
     
     # Adjust for paired-end switch
     if (input$switch) {
-      total_reads <- total_reads / 2
+      total_reads <- total_reads * 2
     }
     
     available_reads <- total_reads * (1 - phix/100)
@@ -352,9 +354,9 @@ server <- function(input, output, session) {
       #scale_linetype_manual(values = c(rep("solid", 5), rep("dotted", 3))) +
       geom_line(aes(colour = Kit), linetype = "dotted",
                 data = subset(plot_df, Segment == "invalid"), linewidth = .8) +
-      scale_colour_manual(values = c("#a63603", "#e6550d", "#fd8d3c", "#fdae6b", 
-                                     "#a6cee3", "#1b7837", "#5aae61", "#a6dba0"))
-    
+      #scale_colour_manual(values = c("#a63603", "#e6550d", "#fd8d3c", "#fdae6b", 
+      #                               "#a6cee3", "#1b7837", "#5aae61", "#a6dba0"))
+      scale_color_viridis_d()
     # Chosen parameters (red marker)
     chosen_samples <- sum(df_species$Samples)
     ki <- kit_info()
