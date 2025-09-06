@@ -4,7 +4,7 @@ library(tidyverse)
 tab_two_ui <- function(id) {
   ns <- NS(id)
   nav_panel(
-    title = "Results",
+    title = "Result Summary",
     
     sidebarLayout(
       sidebarPanel(
@@ -19,7 +19,7 @@ tab_two_ui <- function(id) {
       
       mainPanel(
         fluidRow(
-          column(4,
+          column(3,
                  tags$div(class = "card text-white bg-secondary mb-3",
                           tags$div(class = "card-body",
                                    tags$h5(class = "card-title", "Samples"),
@@ -27,7 +27,7 @@ tab_two_ui <- function(id) {
                           )
                  )
           ),
-          column(4,
+          column(3,
                  tags$div(class = "card text-white bg-primary mb-3",
                           tags$div(class = "card-body",
                                    tags$h5(class = "card-title", "Loci"),
@@ -35,17 +35,24 @@ tab_two_ui <- function(id) {
                           )
                  )
           ),
-          column(4,
+          column(3,
                  tags$div(class = "card text-white bg-secondary mb-3",
                           tags$div(class = "card-body",
                                    tags$h5(class = "card-title", "Success Rate"),
                                    textOutput(ns("sample_success"))
                           )
                  )
+          ),
+          column(3,
+                 tags$div(class = "card text-white bg-primary mb-3",
+                          tags$div(class = "card-body",
+                                   tags$h5(class = "card-title", "Read Depth"),
+                                   textOutput(ns("overall_mean_read_depth"))
+                          )
+                 )
           )
         ),
         
-        br(),
         helpText("Samples containing `negative` are automatically removed"),
         br(),
         
@@ -61,32 +68,36 @@ tab_two_ui <- function(id) {
         ),
         
         fluidRow(
-          column(6,
-                 tags$div(class = "card text-white bg-primary mb-3",
-                          tags$div(class = "card-body",
-                                   #tags$h5(class = "card-title", "Samples"),
-                                   textOutput(ns("sample_success_proportion"))
-                          )
-                 )
-          ),
-          column(6,
-                 tags$div(class = "card text-white bg-primary mb-3",
-                          tags$div(class = "card-body",
-                                   #tags$h5(class = "card-title", "Loci"),
-                                   textOutput(ns("locus_success_proportion"))
-                          )
-                 )
-          )
+          column(6,tags$div(class = "card text-white bg-primary mb-3",
+                            tags$div(class = "card-body",
+                                     textOutput(ns("sample_success_proportion"))))),
+          column(6, tags$div(class = "card text-white bg-primary mb-3",
+                             tags$div(class = "card-body",
+                                      textOutput(ns("locus_success_proportion")))))
         ),
-
-        
         br(),
         
         h3("Read Depth Distribution"),
         fluidRow(
-            column(6, plotOutput(ns("sample_readdepth_plot"))),
-            column(6, plotOutput(ns("locus_readdepth_plot")))
-          ),
+          column(6, plotOutput(ns("sample_readdepth_plot"))),
+          column(6, plotOutput(ns("locus_readdepth_plot")))
+        ),
+        
+        fluidRow(
+          column(6,tags$div(class = "card text-white bg-primary mb-3",
+                            tags$div(class = "card-body",
+                                     textOutput(ns("sample_read_depth_summary"))))),
+          column(6, tags$div(class = "card text-white bg-primary mb-3",
+                             tags$div(class = "card-body",
+                                      textOutput(ns("locus_read_depth_summary")))))
+        ),
+        br(),
+        
+        h3("Highly expressed loci"),
+        tableOutput(ns("locus_stats_max")),
+        br(), 
+        h3("Lowly expressed loci"),
+        tableOutput(ns("locus_stats_min")),
         br()
         
       )
@@ -166,7 +177,8 @@ tab_two_server <- function(id) {
       df <- data()
       loci <- locus_cols()
       data.frame(
-        Loci = colnames(df[loci]),
+        Locus = colnames(df[loci]),
+        Sum_Reads = apply(df[loci], 2, sum),
         Mean_ReadDepth = apply(df[loci], 2, mean),
         Variance_ReadDepth = apply(df[loci], 2, var),
         SD_ReadDepth = apply(df[loci], 2, sd),
@@ -193,6 +205,13 @@ tab_two_server <- function(id) {
     output$sample_success <- renderText({
       df <- sample_success()
       paste(round(mean(df$SuccessRate, na.rm = TRUE)*100,1), "%")
+    })
+    
+    #Read depth
+    output$overall_mean_read_depth <- renderText({
+      df <- data()
+      loci <- locus_cols()
+      paste(round(mean(unlist(df[loci])), 0), "x")
     })
     
     #Preview
@@ -253,7 +272,7 @@ tab_two_server <- function(id) {
     
     
     # Distribution plots
-  
+    
     output$sample_readdepth_plot <- renderPlot({
       stats <- sample_stats()
       
@@ -282,10 +301,11 @@ tab_two_server <- function(id) {
     output$locus_readdepth_plot <- renderPlot({
       stats <- locus_stats()
       
-      ggplot(stats, aes(x = reorder(Loci, Mean_ReadDepth), y = Mean_ReadDepth)) +
+      ggplot(stats, aes(x = reorder(Locus, Mean_ReadDepth), y = Mean_ReadDepth)) +
         geom_errorbar(aes(ymin=Mean_ReadDepth-SE_ReadDepth, 
                           ymax=Mean_ReadDepth+SE_ReadDepth), width=0) +
         geom_point(col = "#d9534f") +
+        scale_y_log10() +
         theme_minimal(base_size = 14) +
         labs(title = "Read Depth by Locus",
              x = "Locus", y = expression(Mean~Read~Depth %+-% SE)) +
@@ -303,9 +323,31 @@ tab_two_server <- function(id) {
       
     })
     
+    #Summary numbers
+    output$sample_read_depth_summary <- renderText({
+      df <- sample_stats()
+      paste(sum(df$Mean_ReadDepth >= 100), "samples > 100x")
+    })
+    
+    output$locus_read_depth_summary <- renderText({
+      df <- locus_stats()
+      paste(sum(df$Mean_ReadDepth >= 100), "loci > 100x")
+    })    
+    
+    #High and low loci
+    output$locus_stats_max <- renderTable({
+      locus_stats() %>% 
+        select(Locus, Mean_ReadDepth, SE_ReadDepth, Sum_Reads) %>% 
+        mutate(PercentOflReads = Sum_Reads / sum(Sum_Reads) * 100) %>%
+        slice_max(PercentOflReads, n = 10)
+    })
+    output$locus_stats_min <- renderTable({
+      locus_stats() %>% 
+        select(Locus, Mean_ReadDepth, SE_ReadDepth, Sum_Reads) %>% 
+        mutate(PercentOfReads = Sum_Reads / sum(Sum_Reads) * 100) %>%
+        slice_min(PercentOfReads, n = 10)
+    })
+    
     
   })
 }
-
-
-#Calculate mean read depth by sample/locus

@@ -5,9 +5,9 @@ account: marineecogenomics
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 15310265
-bundleId: 10850353
+bundleId: 10863451
 url: https://marineecogenomics.shinyapps.io/ShinySeq/
 version: 1
 asMultiple: FALSE
 asStatic: FALSE
-ignoredFiles: temp/Explore_GT-Seq.R|temp/GetReadDepth_GT-Seq.R|temp/RunFromGitHub.R
+ignoredFiles: app_v1.R|tabs/tab1_explore_temp.R|temp/Explore_GT-Seq.R|temp/GetReadDepth_GT-Seq.R|temp/RunFromGitHub.R

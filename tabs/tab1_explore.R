@@ -11,7 +11,7 @@ kits <- read_excel("run_kits.xlsx")
 tab_one_ui <- function(id) {
   ns <- NS(id)
   nav_panel(
-    title = "Plan your run",
+    title = "Plan Your Run",
     
     sidebarLayout(
       sidebarPanel(
