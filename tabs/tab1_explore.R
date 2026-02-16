@@ -4,7 +4,12 @@ library(readxl)
 library(bslib)
 
 # Load run kit information from Excel
-kits <- read_excel("run_kits.xlsx")
+kits <- read_excel("run_kits.xlsx") %>% 
+  mutate(
+    KitName   = str_squish(str_replace_all(KitName, "\u00A0", " ")),
+    Instrument = str_squish(str_replace_all(Instrument, "\u00A0", " "))
+  )
+
 #Reads column must not have identical values.
 
 
@@ -15,13 +20,23 @@ tab_one_ui <- function(id) {
     
     sidebarLayout(
       sidebarPanel(
+        
         h3("Select Run Parameters"),
         
-        selectInput(ns("kit"), "Sequencing kit:",
-                    choices = setNames(kits$Reads, kits$KitName),
-                    selected = kits$Reads[1]),
+        # Checkbox group input
+        checkboxGroupInput(
+          inputId = ns("Instrument"),
+          label = "Select Instrument",
+          choices = unique(kits$Instrument),
+          selected = intersect("NextSeq 2000", unique(kits$Instrument))
+        ),
         
-        bslib::input_switch(ns("switch"), "Paired-end"), 
+        
+        selectInput(ns("kit"), "Sequencing kit:",
+                    choices = NULL,
+                    selected = NULL),
+        
+        #bslib::input_switch(ns("switch"), "Paired-end"), 
         
         sliderInput(ns("phix"), "PhiX:",
                     min = 5, max = 40, value = 20, step = 5),
@@ -131,7 +146,7 @@ tab_one_ui <- function(id) {
 
 
 
-
+#Server -----
 tab_one_server <- function(id) {
   moduleServer(id, function(input, output, session) {
     
@@ -145,7 +160,7 @@ tab_one_server <- function(id) {
             ),
             column(6,
                    sliderInput(session$ns(paste0("loci_", i)), paste("Loci (Sp", i, ")"),
-                               min = 0, max = 1000, value = 300, step = 50)
+                               min = 0, max = 500, value = 250, step = 25)
             )
           ),
           hr()
@@ -153,14 +168,59 @@ tab_one_server <- function(id) {
       })
     })
     
+    
+    
+    
+    # Reactive filtered kits
+    filtered_kits <- reactive({
+      req(input$Instrument)                    # now works because Instrument is namespaced
+      subset(kits, Instrument %in% input$Instrument)
+    })
+    
+    # Populate/update kit dropdown whenever instruments change (including at init)
+    observeEvent(input$Instrument, ignoreInit = FALSE, {
+      df <- filtered_kits()
+      
+      # Build named choices: labels = KitName, values = KitName (consistent!)
+      choices <- setNames(df$KitName, df$KitName)
+      
+      # Your desired default: 3rd row of the full kits table
+      default_kit <- if (nrow(kits) >= 3) kits$KitName[3] else NULL
+      
+      # Try to keep the current selection (now also a KitName); else use default if present in filtered df; else first
+      current <- isolate(input$kit)
+      selected <-
+        if (!is.null(current) && current %in% df$KitName) {
+          current
+        } else if (!is.null(default_kit) && default_kit %in% df$KitName) {
+          default_kit
+        } else if (nrow(df)) {
+          df$KitName[3]
+        } else {
+          NULL
+        }
+      
+      updateSelectInput(session, "kit",
+                        choices = choices,
+                        selected = selected
+      )
+    })
+    
+    # Require a kit before using it
     kit_info <- reactive({
-      kits[kits$Reads == as.numeric(input$kit), ]
+      req(input$kit)
+      kits[kits$KitName == input$kit, , drop = FALSE]
+    })
+  
+    
+    kit_info <- reactive({
+      kits[kits$KitName == input$kit, ]
     })
     
     sequencing_data <- reactive({
       phix <- as.numeric(input$phix)
-      total_reads <- as.numeric(input$kit)
-      if (input$switch) total_reads <- total_reads * 2
+      total_reads <- kit_info()$Reads
+      #if (input$switch) total_reads <- total_reads * 2
       available_reads <- total_reads * (1 - phix / 100)
       
       data.frame(
@@ -190,12 +250,12 @@ tab_one_server <- function(id) {
     
     output$total_reads <- renderText({
       df <- sequencing_data()
-      paste(df$TotalReads[1], "Million single reads in this kit")
+      paste(df$TotalReads[1], "Million single-end reads in this kit")
     })
     
     output$available_reads <- renderText({
       df <- sequencing_data()
-      paste(df$TotalAvailableReads[1], "Million reads available with", df$PhiX, "% spiking")
+      paste(df$TotalAvailableReads[1], "Million single-end reads available with", df$PhiX, "% spiking")
     })
     
     output$reads_required <- renderText({
@@ -242,9 +302,24 @@ tab_one_server <- function(id) {
     })
     
     
-    #Cost plot
+    #Cost plot ----
     output$cost_plot <- renderPlot({
       
+      # Use the filtered kits based on selected Instruments
+      df_kits <- filtered_kits()
+      
+      # If no kits available for the selected instruments, draw an empty message plot
+      if (nrow(df_kits) == 0) {
+        ggplot() +
+          annotate("text", x = 0.5, y = 0.5,
+                   label = "No kits available for the selected instrument(s)",
+                   size = 5, colour = "#20374c") +
+          theme_void() +
+          theme(plot.background = element_rect(fill = "#dcdfe2", color = NA)) |> print()
+        return(invisible(NULL))
+      }
+      
+      # Species and sequencing params (unchanged)
       df_species <- species_data()
       sample_range_max <- 10000
       sum_loci <- sum(df_species$Loci)
@@ -253,15 +328,14 @@ tab_one_server <- function(id) {
       
       line_list <- list()
       
-      for (i in seq_len(nrow(kits))) {
-        kit_name <- kits$KitName[i]
-        kit_cost <- kits$Cost[i]
-        kit_reads <- kits$Reads[i]
+      # Build lines ONLY from the filtered kits
+      for (i in seq_len(nrow(df_kits))) {
+        kit_name <- df_kits$KitName[i]
+        kit_cost <- as.numeric(df_kits$Cost[i])
+        kit_reads <- as.numeric(df_kits$Reads[i])
         
-        # Adjust for paired-end switch
-        if (input$switch) {
-          kit_reads <- kit_reads / 2
-        }
+        # Adjust for paired-end switch if you ever re-enable it
+        # if (input$switch) { kit_reads <- kit_reads / 2 }
         
         available_reads <- kit_reads * (1 - phix / 100)
         
@@ -282,7 +356,7 @@ tab_one_server <- function(id) {
           )
         }
         
-        # invalid segment (depth < 100)
+        # invalid segment (depth < min_depth)
         if (s_max < sample_range_max) {
           invalid_samples <- seq(s_max + 1, sample_range_max)
           if (length(invalid_samples) > 0) {
@@ -296,23 +370,32 @@ tab_one_server <- function(id) {
         }
       }
       
+      # If nothing to plot (e.g., all lines empty), show message
+      if (length(line_list) == 0) {
+        ggplot() +
+          annotate("text", x = 0.5, y = 0.5,
+                   label = "No plot available for current parameters",
+                   size = 5, colour = "#20374c") +
+          theme_void() +
+          theme(plot.background = element_rect(fill = "#dcdfe2", color = NA)) |> print()
+        return(invisible(NULL))
+      }
+      
       plot_df <- do.call(rbind, line_list)
       
-      # Build plot
+      # Build plot (unchanged aesthetics)
       p <- ggplot(plot_df, aes(x = Samples, y = CostPerSample,
                                group = interaction(Kit, Segment))) +
         geom_line(aes(colour = Kit), linetype = "solid",
                   data = subset(plot_df, Segment == "valid"), linewidth = 1) +
-        #scale_linetype_manual(values = c(rep("solid", 5), rep("dotted", 3))) +
         geom_line(aes(colour = Kit), linetype = "dotted",
                   data = subset(plot_df, Segment == "invalid"), linewidth = .8) +
-        #scale_colour_manual(values = c("#a63603", "#e6550d", "#fd8d3c", "#fdae6b", 
-        #                               "#a6cee3", "#1b7837", "#5aae61", "#a6dba0"))
         scale_color_viridis_d()
+      
       # Chosen parameters (red marker)
       chosen_samples <- sum(df_species$Samples)
-      ki <- kit_info()
-      chosen_cost_ps <- if (chosen_samples > 0) ki$Cost / chosen_samples else NA_real_
+      ki <- kit_info()  # <- uses selected KitName → row lookup
+      chosen_cost_ps <- if (chosen_samples > 0) as.numeric(ki$Cost) / chosen_samples else NA_real_
       available_reads_chosen <- as.numeric(ki$Reads) * (1 - phix / 100)
       s_max_chosen <- if (sum_loci > 0) floor(available_reads_chosen * n_species / (input$min_depth * sum_loci)) else 0
       x_point <- pmin(chosen_samples, sample_range_max)
@@ -329,21 +412,18 @@ tab_one_server <- function(id) {
         }
       }
       
-      # Labels and theme
+      # Labels, theme, scales (same as before)
       p <- p +
         labs(x = "Number of Samples", y = "Cost per Sample") +
         theme_minimal(base_size = 14) +
-        theme(panel.grid = element_blank(), 
+        theme(panel.grid = element_blank(),
               legend.position = c(.7,.7),
               plot.background = element_rect(fill = "#dcdfe2", color = NA),
               panel.background = element_rect(fill = "#dcdfe2", color = NA),
               panel.grid.major = element_line(color = "#ebebeb"),
-              #panel.grid.minor = element_line(color = "#ebebeb"),
               axis.text = element_text(color = "#20374c"),
-              axis.title = element_text(color = "#20374c")
-        )
+              axis.title = element_text(color = "#20374c"))
       
-      # Axis scale
       if (input$y_scale == "log") {
         p <- p + scale_y_log10()
       } else {

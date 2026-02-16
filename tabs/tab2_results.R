@@ -9,12 +9,17 @@ tab_two_ui <- function(id) {
     sidebarLayout(
       sidebarPanel(
         h3("Upload Your Data"),
+        textOutput(ns("data_source")),
         fileInput(ns("csv_file"), "Choose CSV File", accept = ".csv"),
         checkboxInput(ns("header"), "Header", TRUE),
         radioButtons(ns("sep"), "Separator",
                      choices = c(Comma = ",", Semicolon = ";", Tab = "\t"),
                      selected = ","),
-        numericInput(ns("threshold"), "Read Depth Threshold", value = 10, min = 0)
+        numericInput(ns("threshold"), "Read Depth Threshold", value = 10, min = 0),
+        br(),
+        sliderInput(ns("success"), "Genotyping success threshold:",
+                    min = .60, max = 1.00, value = .80, step = .05),
+        
       ),
       
       mainPanel(
@@ -93,11 +98,20 @@ tab_two_ui <- function(id) {
         ),
         br(),
         
-        h3("Highly expressed loci"),
-        tableOutput(ns("locus_stats_max")),
-        br(), 
-        h3("Lowly expressed loci"),
-        tableOutput(ns("locus_stats_min")),
+        
+        h3("Highly expressed samples and loci"),
+        fluidRow(
+          column(12, tableOutput(ns("sample_stats_max"))),
+          column(12, tableOutput(ns("locus_stats_max")))
+        ), 
+        
+        br(),
+        
+        h3("Lowly expressed samples and loci"),
+        fluidRow(
+          column(12, tableOutput(ns("sample_stats_min"))),
+          column(12, tableOutput(ns("locus_stats_min")))
+        ),
         br()
         
       )
@@ -112,26 +126,50 @@ tab_two_ui <- function(id) {
 tab_two_server <- function(id) {
   moduleServer(id, function(input, output, session) {
     
+    output$data_source <- renderText({
+      if (is.null(input$csv_file)) {
+        "Using default dataset"
+      } else {
+        paste("Using uploaded file:", input$csv_file$name)
+      }
+    })
+    
     # Reactive: read uploaded CSV
     data <- reactive({
-      req(input$csv_file)
       
-      # Read the CSV
-      df <- read.csv(input$csv_file$datapath, header = input$header, sep = input$sep)
+      # If user uploaded a file → use it
+      if (!is.null(input$csv_file)) {
+        
+        df <- read.csv(
+          input$csv_file$datapath,
+          header = input$header,
+          sep = input$sep
+        )
+        
+      } else {
+        
+        # Otherwise load default CSV
+        df <- read.csv(
+          "data/Library_Genotypes_Counts_GTseq_Run4.csv",
+          header = TRUE,
+          sep = ","
+        )
+        
+      }
       
-      # Rename columns using dplyr::rename with safe checks
+      # Standardise column names safely
       df <- df %>%
         rename(
-          On_Target = `X.On.Target`,
-          On_Target_Reads = `On.Target.Reads`,
-          GT = `X.GT`,
-          Raw_Reads = `Raw.Reads`
+          On_Target = any_of("X.On.Target"),
+          On_Target_Reads = any_of("On.Target.Reads"),
+          GT = any_of("X.GT"),
+          Raw_Reads = any_of("Raw.Reads")
         ) %>%
-        # Filter out rows where Sample contains "negative"
         filter(!str_detect(Sample, regex("negative", ignore_case = TRUE)))
-      df
       
+      df
     })
+    
     
     # Reactive: identify locus columns
     locus_cols <- reactive({
@@ -165,6 +203,7 @@ tab_two_server <- function(id) {
       loci <- locus_cols()
       data.frame(
         Sample = df$Sample,
+        Sum_Reads = rowSums(df[loci]),
         Mean_ReadDepth = rowMeans(df[loci]),
         Variance_ReadDepth = apply(df[loci], 1, var),
         SD_ReadDepth = apply(df[loci], 1, sd),
@@ -216,7 +255,7 @@ tab_two_server <- function(id) {
     
     #Preview
     output$preview <- renderTable({
-      head(data(), 3)
+      head(data(), 3)[,1:10]
     })
     
     #Plots
@@ -224,7 +263,7 @@ tab_two_server <- function(id) {
       df <- sample_success()
       ggplot(df, aes(x = SuccessRate)) +
         geom_histogram() +
-        geom_vline(xintercept = 0.8, col = "#d9534f", linetype = "dashed") +
+        geom_vline(xintercept = input$success, col = "#d9534f", linetype = "dashed") +
         theme_minimal(base_size = 14) +
         labs(y = "Number of Samples", 
              x = "Sample Genotyping Success") +
@@ -243,7 +282,7 @@ tab_two_server <- function(id) {
       df <- locus_success()
       ggplot(df, aes(x = SuccessRate)) +
         geom_histogram() +
-        geom_vline(xintercept = 0.8, col = "#d9534f", linetype = "dashed") +
+        geom_vline(xintercept = input$success, col = "#d9534f", linetype = "dashed") +
         theme_minimal(base_size = 14) +
         labs(y = "Number of loci", 
              x = "Locus Genotyping Success") +
@@ -262,12 +301,12 @@ tab_two_server <- function(id) {
     #Summary numbers
     output$sample_success_proportion <- renderText({
       df <- sample_success()
-      paste(sum(df$SuccessRate >= 0.8), "samples with >80% genotype")
+      paste(sum(df$SuccessRate >= input$success), "samples with >", input$success*100, "% genotype")
     })
     
     output$locus_success_proportion <- renderText({
       df <- locus_success()
-      paste(sum(df$SuccessRate >= 0.8), "loci with >80% genotype")
+      paste(sum(df$SuccessRate >= input$success), "loci with >", input$success*100, "% genotype")
     })
     
     
@@ -347,6 +386,21 @@ tab_two_server <- function(id) {
         mutate(PercentOfReads = Sum_Reads / sum(Sum_Reads) * 100) %>%
         slice_min(PercentOfReads, n = 10)
     })
+    
+    #High and low samples
+    output$sample_stats_max <- renderTable({
+      sample_stats() %>% 
+        select(Sample, Mean_ReadDepth, SE_ReadDepth, Sum_Reads) %>% 
+        mutate(PercentOflReads = Sum_Reads / sum(Sum_Reads) * 100) %>%
+        slice_max(PercentOflReads, n = 10)
+    })
+    output$sample_stats_min <- renderTable({
+      sample_stats() %>% 
+        select(Sample, Mean_ReadDepth, SE_ReadDepth, Sum_Reads) %>% 
+        mutate(PercentOfReads = Sum_Reads / sum(Sum_Reads) * 100) %>%
+        slice_min(PercentOfReads, n = 10)
+    })
+    
     
     
   })
