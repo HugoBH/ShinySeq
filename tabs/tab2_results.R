@@ -1,5 +1,3 @@
-# Load tidyverse
-library(tidyverse)
 
 tab_two_ui <- function(id) {
   ns <- NS(id)
@@ -150,7 +148,7 @@ tab_two_server <- function(id) {
         
         # Otherwise load default CSV
         df <- read.csv(
-          "data/Library_Genotypes_Counts_GTseq_Run4.csv",
+          "Genotypes_Counts_example.csv",
           header = TRUE,
           sep = ","
         )

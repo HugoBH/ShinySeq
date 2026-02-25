@@ -1,5 +1,8 @@
 library(shiny)
+library(ggplot2)
+library(readxl)
 library(bslib)
+library(tidyverse)
 
 # Source tab scripts
 source("tabs/tab1_explore.R")

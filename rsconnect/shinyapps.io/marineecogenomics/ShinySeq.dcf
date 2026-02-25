@@ -5,9 +5,9 @@ account: marineecogenomics
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 15310265
-bundleId: 11587621
+bundleId: 11628030
 url: https://marineecogenomics.shinyapps.io/ShinySeq/
 version: 1
 asMultiple: FALSE
 asStatic: FALSE
-ignoredFiles: data/Library_Genotypes_GTseq_Run4.csv|data/Library_Genotypes_v3.forwardreadsbees_counts.csv|data/Library_Genotypes_v3.forwardreadspercula_counts.csv|nextseq-1000-2000-spec-sheet-m-na-00008.pdf|temp
+ignoredFiles: nextseq-1000-2000-spec-sheet-m-na-00008.pdf|data|temp
